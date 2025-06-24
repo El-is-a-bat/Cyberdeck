@@ -1,12 +1,13 @@
+use aho_corasick::AhoCorasick;
 use chrono::Local;
 use freedesktop_file_parser::{EntryType, LocaleString};
-use freedesktop_icons;
 #[cfg(debug_assertions)]
 use log::{debug, info};
 use log::{error, warn};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::env;
+use std::fs;
 use std::fs::OpenOptions;
 use std::io::Write;
 use std::path::Path;
@@ -223,9 +224,9 @@ pub fn list_desktop_applications() -> Vec<Application> {
                                 warn!("No icon path found for {}", desktop_entry.name.default);
                             }
                             if !kde_icon_theme.is_empty() {
-                                match freedesktop_icons::lookup(&*icon.content)
+                                match freedesktop_icons::lookup(&icon.content)
                                     .with_size(48)
-                                    .with_theme(&*kde_icon_theme)
+                                    .with_theme(&kde_icon_theme)
                                     .find()
                                 {
                                     Some(icon_path) => icon_path.to_string_lossy().into_owned(),
@@ -261,6 +262,16 @@ pub fn list_desktop_applications() -> Vec<Application> {
 
     #[cfg(debug_assertions)]
     info!("Total applications found: {}", applications.len());
+    match cache_apps(&applications) {
+        Ok(()) => {
+            #[cfg(debug_assertions)]
+            info!("Applications cached successfully")
+        }
+        Err(e) => {
+            error!("Error occurred when writing cache to file: {}", e)
+        }
+    }
+
     applications
 }
 
@@ -276,6 +287,19 @@ pub fn set_application_size(app_handle: tauri::AppHandle, height: u32, width: u3
     }
     println!("Width: {}", width);
     println!("Height: {}", height);
+}
+
+#[tauri::command]
+pub fn try_get_cached_applications() -> Vec<Application> {
+    match read_cached_apps() {
+        Ok(apps) => apps,
+        Err(e) => {
+            log_to_file(&format!("Erroe while reading cached apps: {}", e));
+            error!("Error while reading cached apps: {}", e);
+
+            list_desktop_applications()
+        }
+    }
 }
 
 #[tauri::command]
@@ -304,7 +328,7 @@ fn log_to_file(message: &str) {
 }
 
 fn clean_exec_command(exec: String, app_name: &str) -> String {
-    // update 1: is a separate function because at first I decided to remove some args,
+    // is a separate function because at first I decided to remove some args,
     // like `%U` and `%f`, but then decided not to use them at all because of
     // some weird results like:
     //      `vlc --started-from-file` or
@@ -315,7 +339,7 @@ fn clean_exec_command(exec: String, app_name: &str) -> String {
     // so getting the first split element (to skip args) won't help
     //
     // this function now splits the exec string by whitespace, then iterates through the elements;
-    // when an element (case-insensitive, basename only) matches the app name, it includes all 
+    // when an element (case-insensitive, basename only) matches the app name, it includes all
     // elements up to and including that one, and ignores the rest.
     let parts: Vec<&str> = exec.split_whitespace().collect();
     let app_name_lower = app_name.to_lowercase();
@@ -331,12 +355,24 @@ fn clean_exec_command(exec: String, app_name: &str) -> String {
             }
         }
     }
-    result.join(" ")
+
+    // update 3
+    // some apps have names which different from their exec (for example "VNC viever" is
+    // `vncviewer` and "LibreOffice Calc" is `libreoffice --calc`)
+    if parts.len() == result.len() {
+        let params = ["%U", "%u", "%F", "%f", "%i", "%c", "%k"];
+        let replacements = &[""; 7];
+        let ac = AhoCorasick::new(params).unwrap();
+        let cleaned = ac.replace_all(&exec, replacements);
+        cleaned.split_whitespace().collect::<Vec<_>>().join(" ")
+    } else {
+        result.join(" ")
+    }
 }
 
 fn get_kde_icon_theme() -> Option<String> {
     let output_result = Command::new("kreadconfig5")
-        .args(&["--file", "kdeglobals", "--group", "Icons", "--key", "Theme"])
+        .args(["--file", "kdeglobals", "--group", "Icons", "--key", "Theme"])
         .output();
     match output_result {
         Ok(output) => {
@@ -358,10 +394,34 @@ fn get_kde_icon_theme() -> Option<String> {
                 None
             }
         }
-        Err(e) => {
+        Err(_e) => {
             #[cfg(debug_assertions)]
-            error!("Failed to execute kreadconfig5: {}", e);
+            error!("Failed to execute kreadconfig5: {}", _e);
             None
         }
     }
+}
+
+pub fn cache_apps(apps: &Vec<Application>) -> std::io::Result<()> {
+    let cache_path = format!(
+        "{}/.local/share/slayfi/apps_cache.json",
+        env::var("HOME").unwrap_or_else(|_| String::from("/home"))
+    );
+    if let Some(parent) = Path::new(&cache_path).parent() {
+        fs::create_dir_all(parent)?;
+    }
+    let json = serde_json::to_string(apps)
+        .map_err(|e| std::io::Error::other(format!("Serialization error: {}", e)))?;
+    fs::write(cache_path, json)
+}
+
+pub fn read_cached_apps() -> std::io::Result<Vec<Application>> {
+    let cache_path = format!(
+        "{}/.local/share/slayfi/apps_cache.json",
+        env::var("HOME").unwrap_or_else(|_| String::from("/home"))
+    );
+    let data = fs::read_to_string(cache_path)?;
+    let apps: Vec<Application> = serde_json::from_str(&data)
+        .map_err(|e| std::io::Error::other(format!("Deserialization error: {}", e)))?;
+    Ok(apps)
 }

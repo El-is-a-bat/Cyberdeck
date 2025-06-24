@@ -25,7 +25,8 @@ const filter = document.getElementById("filter") as HTMLInputElement;
 const container = document.getElementById("app-list") as HTMLDivElement;
 
 async function fetchApps() {
-    apps = await invoke("list_desktop_applications");
+    // apps = await invoke("list_desktop_applications");
+    apps = await invoke("try_get_cached_applications");
 }
 
 async function createAppsEntries() {
