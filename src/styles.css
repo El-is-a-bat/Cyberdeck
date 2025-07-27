@@ -11,6 +11,7 @@
     --net-link: #cfec57;
     --red-accent: #bd1f26;
     --red: #842623;
+    --red-text: #ff5750;
     --red-hover: #4e191c;
     --lime: #15ff00;
     --green: #1bd888;
@@ -18,23 +19,32 @@
 
 html,
 body {
+    display: flex;
+    justify-content: left;
+    align-items: center;
     height: 100%;
+    width: 100%;
     margin: 0;
-    background: transparent;
+    background: #00000030;
 }
 
 .container {
+    min-width: 400px;
+    min-height: 300px;
+    height: 100%;
     display: flex;
     flex-direction: column;
     justify-content: center;
     box-sizing: border-box;
     overflow-y: auto;
+    margin-left: 8%;
+    padding: 0 2em;
+    background-color: var(--back-side);
 }
 
 .entry {
     display: flex;
-    color: var(--red-accent);
-    background-color: var(--back-side);
+    color: var(--red-text);
 }
 
 .app-list {

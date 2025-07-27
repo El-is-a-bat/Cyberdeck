@@ -14,7 +14,6 @@ interface SlayfiConfig {
 }
 // TODO remove?
 let apps: App[] = [];
-// TODO change to list?
 let appsEntries: HTMLDivElement[] = [];
 let availableApps: HTMLDivElement[] = [];
 let config: SlayfiConfig;
@@ -24,29 +23,48 @@ let currentSelectedIdx = 0;
 const filter = document.getElementById("filter") as HTMLInputElement;
 const container = document.getElementById("app-list") as HTMLDivElement;
 
+let isDev = false;
+(async () => {
+    isDev = await invoke<boolean>("is_dev");
+    console.log("Development mode:", isDev);
+})();
+
 async function fetchApps() {
-    // apps = await invoke("list_desktop_applications");
+    console.log("fetching apps");
     apps = await invoke("try_get_cached_applications");
+    if (apps.length == 0) {
+        console.log("cached apps don't found, trying to get applications list");
+    }
+    // update installed apps
+    await invoke("get_desktop_applications");
 }
 
 async function createAppsEntries() {
     container.addEventListener("click", (e) => {
-        let clickedItem = e.target as HTMLDivElement;
-        let entry = clickedItem.closest(".entry") as HTMLDivElement;
+        const clickedItem = e.target as HTMLDivElement;
+        const entry = clickedItem.closest(".entry") as HTMLDivElement;
         if (entry) {
             selectApp(entry);
         } else {
             console.log("somehow clicked item is not in entry");
         }
     });
-    container.addEventListener("dblclick", () => {
-        //const appName = entry.querySelector(".app-name")?.textContent;
-        //if (appName) {
-        //    runApp(appName);
-        //}
+    container.addEventListener("dblclick", (e) => {
+        const clickedItem = e.target as HTMLDivElement;
+        const entry = clickedItem.closest(".entry") as HTMLDivElement;
+        if (entry) {
+            selectApp(entry);
+            const appName = entry.querySelector(".app-name")?.textContent;
+            if (appName) {
+                runApp(appName);
+            } else {
+                console.log("can't find app name for selected item");
+            }
+        } else {
+            console.log("somehow clicked item is not in entry");
+        }
     });
 
-    const isDev = await invoke<boolean>("is_dev");
 
     apps.forEach((app: App, index: number) => {
         const entry = document.createElement("div");
@@ -153,7 +171,7 @@ async function addAppSelection() {
             case "ArrowDown":
                 e.preventDefault();
                 newSelectedIndex += 1;
-                let lastIdxOnPage = currentPage * config.apps_per_page + config.apps_per_page - 1;
+                const lastIdxOnPage = currentPage * config.apps_per_page + config.apps_per_page - 1;
                 if (newSelectedIndex > lastIdxOnPage || newSelectedIndex >= availableApps.length) {
                     nextPage();
                 }
@@ -279,11 +297,13 @@ async function main() {
     availableApps[0].classList.add("selected");
     setPage(0);
 
-    const filter = document.getElementById("filter") as HTMLInputElement;
     filter.focus();
     filter.oninput = filterApps;
 
-    console.log(apps);
+    if (isDev) {
+        console.log(apps);
+    }
+
     await addAppSelection();
 }
 

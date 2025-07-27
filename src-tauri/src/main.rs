@@ -4,17 +4,38 @@
 mod commands;
 
 use gtk::prelude::*;
-use log::LevelFilter;
 use tauri::Manager;
 
 fn main() {
-    // Initialize logger
-    env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("debug"))
-        .filter_level(LevelFilter::Debug)
-        .init();
+    #[cfg(debug_assertions)]
+    let devtools = tauri_plugin_devtools::init();
 
-    tauri::Builder::default()
-        .plugin(tauri_plugin_global_shortcut::Builder::new().build())
+    let mut builder = tauri::Builder::default();
+
+    #[cfg(debug_assertions)]
+    {
+        builder = builder.plugin(devtools);
+    }
+
+    #[cfg(not(debug_assertions))]
+    {
+        builder = builder.plugin(
+            tauri_plugin_log::Builder::new()
+                .level(log::LevelFilter::Info)
+                .filter(|metadata| metadata.target().starts_with("slayfi"))
+                .target(tauri_plugin_log::Target::new(
+                    tauri_plugin_log::TargetKind::Stdout,
+                ))
+                .target(tauri_plugin_log::Target::new(
+                    tauri_plugin_log::TargetKind::LogDir {
+                        file_name: Some("logs".to_string()),
+                    },
+                ))
+                .build(),
+        );
+    }
+
+    builder
         .setup(|app| {
             // setting up gtk window
             let main_webview = app.get_webview_window("main").unwrap();
@@ -26,8 +47,8 @@ fn main() {
             // for now I will use hyprland windowrules((
             gtk_window.set_resizable(true);
 
-            gtk_window.set_width_request(400);
-            gtk_window.set_height_request(270);
+            gtk_window.set_width_request(1920);
+            gtk_window.set_height_request(1080);
 
             Ok(())
         })
@@ -36,7 +57,7 @@ fn main() {
             commands::start_program,
             commands::get_config,
             commands::set_application_size,
-            commands::list_desktop_applications,
+            commands::get_desktop_applications,
             commands::is_dev,
             commands::try_get_cached_applications
         ])

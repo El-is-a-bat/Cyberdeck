@@ -1,5 +1,4 @@
 use aho_corasick::AhoCorasick;
-use chrono::Local;
 use freedesktop_file_parser::{EntryType, LocaleString};
 #[cfg(debug_assertions)]
 use log::{debug, info};
@@ -8,8 +7,6 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::env;
 use std::fs;
-use std::fs::OpenOptions;
-use std::io::Write;
 use std::path::Path;
 use std::process::Command;
 use tauri::{Manager, PhysicalSize, Size};
@@ -58,7 +55,7 @@ pub fn start_program(app_handle: tauri::AppHandle, exec: String) -> bool {
 }
 
 #[tauri::command]
-pub fn list_desktop_applications() -> Vec<Application> {
+pub fn get_desktop_applications() -> Vec<Application> {
     let applications_path = "/usr/share/applications/";
     let mut applications: Vec<Application> = vec![];
 
@@ -87,7 +84,6 @@ pub fn list_desktop_applications() -> Vec<Application> {
         let content = match std::fs::read_to_string(entry.path()) {
             Ok(content) => content,
             Err(e) => {
-                log_to_file(&format!("Error reading file {}: {}", file_path, e));
                 error!("Error reading file {}: {}", file_path, e);
                 continue;
             }
@@ -101,10 +97,6 @@ pub fn list_desktop_applications() -> Vec<Application> {
                 format!("[Desktop Entry]{}", &section[..next_section])
             }
             None => {
-                log_to_file(&format!(
-                    "No [Desktop Entry] section found in {}",
-                    file_path
-                ));
                 #[cfg(debug_assertions)]
                 debug!("No [Desktop Entry] section found in {}", file_path);
                 continue;
@@ -114,7 +106,6 @@ pub fn list_desktop_applications() -> Vec<Application> {
         let desktop_file = match freedesktop_file_parser::parse(&desktop_entry_content) {
             Ok(parsed) => parsed,
             Err(e) => {
-                log_to_file(&format!("Error parsing desktop file {}: {}", file_path, e));
                 error!("Error parsing desktop file {}: {}", file_path, e);
                 continue;
             }
@@ -142,10 +133,6 @@ pub fn list_desktop_applications() -> Vec<Application> {
                 None => {
                     #[cfg(debug_assertions)]
                     {
-                        log_to_file(&format!(
-                            "Skipping {}: No exec field",
-                            desktop_entry.name.default
-                        ));
                         debug!("Skipping {}: No exec field", desktop_entry.name.default);
                     }
                     continue;
@@ -156,10 +143,6 @@ pub fn list_desktop_applications() -> Vec<Application> {
             if desktop_entry.hidden.unwrap_or(false) || desktop_entry.no_display.unwrap_or(false) {
                 #[cfg(debug_assertions)]
                 {
-                    log_to_file(&format!(
-                        "Skipping {}: Hidden or no display",
-                        desktop_entry.name.default
-                    ));
                     debug!(
                         "Skipping {}: Hidden or no display",
                         desktop_entry.name.default
@@ -175,10 +158,6 @@ pub fn list_desktop_applications() -> Vec<Application> {
             if !only_show_in.is_empty() && !only_show_in.contains(&desktop_environment) {
                 #[cfg(debug_assertions)]
                 {
-                    log_to_file(&format!(
-                        "Skipping {}: Not compatible with current desktop environment",
-                        desktop_entry.name.default
-                    ));
                     debug!(
                         "Skipping {}: Not compatible with current desktop environment",
                         desktop_entry.name.default
@@ -190,10 +169,6 @@ pub fn list_desktop_applications() -> Vec<Application> {
             if not_show_in.contains(&desktop_environment) {
                 #[cfg(debug_assertions)]
                 {
-                    log_to_file(&format!(
-                        "Skipping {}: Explicitly not shown in current desktop environment",
-                        desktop_entry.name.default
-                    ));
                     debug!(
                         "Skipping {}: Explicitly not shown in current desktop environment",
                         desktop_entry.name.default
@@ -217,10 +192,6 @@ pub fn list_desktop_applications() -> Vec<Application> {
                         None => {
                             #[cfg(debug_assertions)]
                             {
-                                log_to_file(&format!(
-                                    "No icon path found for {}",
-                                    desktop_entry.name.default
-                                ));
                                 warn!("No icon path found for {}", desktop_entry.name.default);
                             }
                             if !kde_icon_theme.is_empty() {
@@ -239,7 +210,6 @@ pub fn list_desktop_applications() -> Vec<Application> {
                     },
                     None => {
                         #[cfg(debug_assertions)]
-                        log_to_file(&format!("No icon found for {}", desktop_entry.name.default));
                         warn!("No icon found for {}", desktop_entry.name.default);
                         String::from("")
                     }
@@ -253,7 +223,6 @@ pub fn list_desktop_applications() -> Vec<Application> {
         } else {
             #[cfg(debug_assertions)]
             {
-                log_to_file(&format!("Skipping {}: Not an application entry", file_path));
                 debug!("Skipping {}: Not an application entry", file_path);
             }
             continue;
@@ -294,10 +263,9 @@ pub fn try_get_cached_applications() -> Vec<Application> {
     match read_cached_apps() {
         Ok(apps) => apps,
         Err(e) => {
-            log_to_file(&format!("Erroe while reading cached apps: {}", e));
             error!("Error while reading cached apps: {}", e);
 
-            list_desktop_applications()
+            get_desktop_applications()
         }
     }
 }
@@ -307,25 +275,6 @@ pub fn is_dev() -> bool {
     cfg!(debug_assertions)
 }
 
-fn log_to_file(message: &str) {
-    let error_log_path = format!(
-        "{}/.local/share/slayfi/error.log",
-        env::var("HOME").unwrap_or_else(|_| String::from("/home"))
-    );
-    if let Ok(mut error_log) = OpenOptions::new()
-        .create(true)
-        .write(true)
-        .truncate(true)
-        .open(&error_log_path)
-    {
-        let error_msg = format!(
-            "[{}] {}\n",
-            Local::now().format("%Y-%m-%d %H:%M:%S"),
-            message
-        );
-        let _ = error_log.write_all(error_msg.as_bytes());
-    }
-}
 
 fn clean_exec_command(exec: String, app_name: &str) -> String {
     // is a separate function because at first I decided to remove some args,
