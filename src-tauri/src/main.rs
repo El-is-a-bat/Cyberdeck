@@ -7,13 +7,11 @@ use gtk::prelude::*;
 use tauri::Manager;
 
 fn main() {
-    #[cfg(debug_assertions)]
-    let devtools = tauri_plugin_devtools::init();
-
     let mut builder = tauri::Builder::default();
 
     #[cfg(debug_assertions)]
     {
+        let devtools = tauri_plugin_devtools::init();
         builder = builder.plugin(devtools);
     }
 
@@ -22,6 +20,7 @@ fn main() {
         builder = builder.plugin(
             tauri_plugin_log::Builder::new()
                 .level(log::LevelFilter::Info)
+                .max_file_size(50000 /* bytes */)
                 .filter(|metadata| metadata.target().starts_with("slayfi"))
                 .target(tauri_plugin_log::Target::new(
                     tauri_plugin_log::TargetKind::Stdout,

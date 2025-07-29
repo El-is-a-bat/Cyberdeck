@@ -38,17 +38,17 @@ pub fn exit(app_handle: tauri::AppHandle) {
 #[tauri::command]
 pub fn start_program(app_handle: tauri::AppHandle, exec: String) -> bool {
     // use nohup to detach the process and redirect output
-    let shell_cmd = format!("nohup {} > /dev/null 2>&1 &", exec);
+    let shell_cmd = format!("nohup {exec} > /dev/null 2>&1 &");
 
     match Command::new("sh").arg("-c").arg(shell_cmd).spawn() {
         Ok(_) => {
             #[cfg(debug_assertions)]
-            info!("Successfully started program: {}", exec);
+            info!("Successfully started program: {exec}");
             app_handle.exit(0);
             true
         }
         Err(e) => {
-            error!("Failed to start program {}: {}", exec, e);
+            error!("Failed to start program {exec}: {e}");
             false
         }
     }
@@ -68,9 +68,9 @@ pub fn get_desktop_applications() -> Vec<Application> {
     let kde_icon_theme = get_kde_icon_theme().unwrap_or_else(|| String::from(""));
     #[cfg(debug_assertions)]
     {
-        info!("Current desktop environment: {}", desktop_environment);
-        info!("Current default terminal: {}", terminal_app);
-        info!("Current KDE icon theme: {}", kde_icon_theme);
+        info!("Current desktop environment: {desktop_environment}");
+        info!("Current default terminal: {terminal_app}");
+        info!("Current KDE icon theme: {kde_icon_theme}");
     }
 
     for entry in WalkDir::new(applications_path)
@@ -79,12 +79,12 @@ pub fn get_desktop_applications() -> Vec<Application> {
     {
         let file_path = entry.path().to_string_lossy();
         #[cfg(debug_assertions)]
-        debug!("Processing: {}", file_path);
+        debug!("Processing: {file_path}");
 
         let content = match std::fs::read_to_string(entry.path()) {
             Ok(content) => content,
             Err(e) => {
-                error!("Error reading file {}: {}", file_path, e);
+                error!("Error reading file {file_path}: {e}");
                 continue;
             }
         };
@@ -98,7 +98,7 @@ pub fn get_desktop_applications() -> Vec<Application> {
             }
             None => {
                 #[cfg(debug_assertions)]
-                debug!("No [Desktop Entry] section found in {}", file_path);
+                debug!("No [Desktop Entry] section found in {file_path}");
                 continue;
             }
         };
@@ -106,7 +106,7 @@ pub fn get_desktop_applications() -> Vec<Application> {
         let desktop_file = match freedesktop_file_parser::parse(&desktop_entry_content) {
             Ok(parsed) => parsed,
             Err(e) => {
-                error!("Error parsing desktop file {}: {}", file_path, e);
+                error!("Error parsing desktop file {file_path}: {e}");
                 continue;
             }
         };
@@ -122,7 +122,7 @@ pub fn get_desktop_applications() -> Vec<Application> {
                     match application.terminal {
                         Some(is_terminal) => {
                             if is_terminal {
-                                format!("{} {}", terminal_app, cleaned)
+                                format!("{terminal_app} {cleaned}")
                             } else {
                                 cleaned
                             }
@@ -133,7 +133,10 @@ pub fn get_desktop_applications() -> Vec<Application> {
                 None => {
                     #[cfg(debug_assertions)]
                     {
-                        debug!("Skipping {}: No exec field", desktop_entry.name.default);
+                        debug!(
+                            "Skipping {app_name}: No exec field",
+                            app_name = desktop_entry.name.default
+                        );
                     }
                     continue;
                 }
@@ -144,8 +147,8 @@ pub fn get_desktop_applications() -> Vec<Application> {
                 #[cfg(debug_assertions)]
                 {
                     debug!(
-                        "Skipping {}: Hidden or no display",
-                        desktop_entry.name.default
+                        "Skipping {app_name}: Hidden or no display",
+                        app_name = desktop_entry.name.default
                     );
                 }
                 continue;
@@ -159,8 +162,8 @@ pub fn get_desktop_applications() -> Vec<Application> {
                 #[cfg(debug_assertions)]
                 {
                     debug!(
-                        "Skipping {}: Not compatible with current desktop environment",
-                        desktop_entry.name.default
+                        "Skipping {app_name}: Not compatible with current desktop environment",
+                        app_name = desktop_entry.name.default
                     );
                 }
                 continue;
@@ -170,8 +173,8 @@ pub fn get_desktop_applications() -> Vec<Application> {
                 #[cfg(debug_assertions)]
                 {
                     debug!(
-                        "Skipping {}: Explicitly not shown in current desktop environment",
-                        desktop_entry.name.default
+                        "Skipping {app_name}: Explicitly not shown in current desktop environment",
+                        app_name = desktop_entry.name.default
                     );
                 }
                 continue;
@@ -192,7 +195,10 @@ pub fn get_desktop_applications() -> Vec<Application> {
                         None => {
                             #[cfg(debug_assertions)]
                             {
-                                warn!("No icon path found for {}", desktop_entry.name.default);
+                                warn!(
+                                    "No icon path found for {app_name}",
+                                    app_name = desktop_entry.name.default
+                                );
                             }
                             if !kde_icon_theme.is_empty() {
                                 match freedesktop_icons::lookup(&icon.content)
@@ -210,7 +216,10 @@ pub fn get_desktop_applications() -> Vec<Application> {
                     },
                     None => {
                         #[cfg(debug_assertions)]
-                        warn!("No icon found for {}", desktop_entry.name.default);
+                        warn!(
+                            "No icon found for {app_name}",
+                            app_name = desktop_entry.name.default
+                        );
                         String::from("")
                     }
                 },
@@ -218,26 +227,29 @@ pub fn get_desktop_applications() -> Vec<Application> {
             };
 
             #[cfg(debug_assertions)]
-            debug!("Added application: {}", app);
+            debug!("Added application: {app}");
             applications.push(app);
         } else {
             #[cfg(debug_assertions)]
             {
-                debug!("Skipping {}: Not an application entry", file_path);
+                debug!("Skipping {file_path}: Not an application entry");
             }
             continue;
         }
     }
 
     #[cfg(debug_assertions)]
-    info!("Total applications found: {}", applications.len());
+    info!(
+        "Total applications found: {count}",
+        count = applications.len()
+    );
     match cache_apps(&applications) {
         Ok(()) => {
             #[cfg(debug_assertions)]
             info!("Applications cached successfully")
         }
         Err(e) => {
-            error!("Error occurred when writing cache to file: {}", e)
+            error!("Error occurred when writing cache to file: {e}")
         }
     }
 
@@ -254,8 +266,8 @@ pub fn set_application_size(app_handle: tauri::AppHandle, height: u32, width: u3
     if let Some(window) = app_handle.get_window("main") {
         let _ = window.set_size(Size::Physical(PhysicalSize { width, height }));
     }
-    println!("Width: {}", width);
-    println!("Height: {}", height);
+    info!("Width: {width}");
+    info!("Height: {height}");
 }
 
 #[tauri::command]
@@ -263,7 +275,7 @@ pub fn try_get_cached_applications() -> Vec<Application> {
     match read_cached_apps() {
         Ok(apps) => apps,
         Err(e) => {
-            error!("Error while reading cached apps: {}", e);
+            error!("Error while reading cached apps: {e}");
 
             get_desktop_applications()
         }
@@ -274,7 +286,6 @@ pub fn try_get_cached_applications() -> Vec<Application> {
 pub fn is_dev() -> bool {
     cfg!(debug_assertions)
 }
-
 
 fn clean_exec_command(exec: String, app_name: &str) -> String {
     // is a separate function because at first I decided to remove some args,
@@ -337,15 +348,15 @@ fn get_kde_icon_theme() -> Option<String> {
             } else {
                 #[cfg(debug_assertions)]
                 error!(
-                    "kreadconfig5 failed: {}",
-                    String::from_utf8_lossy(&output.stderr)
+                    "kreadconfig5 failed: {stderr}",
+                    stderr = String::from_utf8_lossy(&output.stderr)
                 );
                 None
             }
         }
         Err(_e) => {
             #[cfg(debug_assertions)]
-            error!("Failed to execute kreadconfig5: {}", _e);
+            error!("Failed to execute kreadconfig5: {_e}");
             None
         }
     }
@@ -360,7 +371,7 @@ pub fn cache_apps(apps: &Vec<Application>) -> std::io::Result<()> {
         fs::create_dir_all(parent)?;
     }
     let json = serde_json::to_string(apps)
-        .map_err(|e| std::io::Error::other(format!("Serialization error: {}", e)))?;
+        .map_err(|e| std::io::Error::other(format!("Serialization error: {e}")))?;
     fs::write(cache_path, json)
 }
 
@@ -371,6 +382,6 @@ pub fn read_cached_apps() -> std::io::Result<Vec<Application>> {
     );
     let data = fs::read_to_string(cache_path)?;
     let apps: Vec<Application> = serde_json::from_str(&data)
-        .map_err(|e| std::io::Error::other(format!("Deserialization error: {}", e)))?;
+        .map_err(|e| std::io::Error::other(format!("Deserialization error: {e}")))?;
     Ok(apps)
 }
