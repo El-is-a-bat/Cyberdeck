@@ -2,11 +2,18 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 mod commands;
+mod config;
 
 use gtk::prelude::*;
 use tauri::Manager;
 
 fn main() {
+    if let Ok(_config_guard) = config::APP_CONFIG.lock() {
+        println!("App started with config");
+    } else {
+        println!("Failed to init config");
+    }
+
     let mut builder = tauri::Builder::default();
 
     #[cfg(debug_assertions)]
@@ -22,6 +29,9 @@ fn main() {
                 .level(log::LevelFilter::Info)
                 .max_file_size(50000 /* bytes */)
                 .filter(|metadata| metadata.target().starts_with("slayfi"))
+                .format(|out, message, record| {
+                    out.finish(format_args!("[{}] {}", record.level(), message))
+                })
                 .target(tauri_plugin_log::Target::new(
                     tauri_plugin_log::TargetKind::Stdout,
                 ))
@@ -40,25 +50,31 @@ fn main() {
             let main_webview = app.get_webview_window("main").unwrap();
             let gtk_window = main_webview.gtk_window().unwrap();
 
+            let current_monitor_size = match main_webview.current_monitor() {
+                Ok(Some(monitor)) => *monitor.size(),
+                Ok(None) => tauri::PhysicalSize::new(1920, 1080),
+                Err(_e) => tauri::PhysicalSize::new(1920, 1080),
+            };
+
             gtk_window.set_decorated(false);
             // setting this to false makes window float
             // TODO find better way to do this
             // for now I will use hyprland windowrules((
             gtk_window.set_resizable(true);
 
-            gtk_window.set_width_request(1920);
-            gtk_window.set_height_request(1080);
+            gtk_window.set_width_request(current_monitor_size.width.try_into().unwrap());
+            gtk_window.set_height_request(current_monitor_size.height.try_into().unwrap());
 
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
             commands::exit,
             commands::start_program,
-            commands::get_config,
-            commands::set_application_size,
             commands::get_desktop_applications,
             commands::is_dev,
-            commands::try_get_cached_applications
+            commands::try_get_cached_applications,
+            config::get_slayfi_config,
+            config::get_client_config,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri app");

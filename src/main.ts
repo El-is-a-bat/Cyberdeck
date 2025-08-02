@@ -1,6 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 import { convertFileSrc } from "@tauri-apps/api/core";
-
+import { ClientConfig } from "./types/ClientConfig";
 
 interface App {
     name: string;
@@ -9,14 +9,11 @@ interface App {
     exec: string;
 }
 
-interface SlayfiConfig {
-    apps_per_page: number
-}
 // TODO remove?
 let apps: App[] = [];
 let appsEntries: HTMLDivElement[] = [];
 let availableApps: HTMLDivElement[] = [];
-let config: SlayfiConfig;
+let config: ClientConfig;
 let maxPages: number;
 let currentPage = 0;
 let currentSelectedIdx = 0;
@@ -151,6 +148,8 @@ async function addAppSelection() {
 
         let newSelectedIndex = currentSelectedIdx;
 
+        // TODO add scrolling
+
         //TODO handle if last page less than apps_per_page
         // if page=0 and selectedIdx=0 and ArrowLeft, selected item outside page.
         // if scroll by ArrowRight selected item also moves itself from existence
@@ -271,8 +270,8 @@ filter.addEventListener("keydown", (e) => {
 });
 
 async function main() {
-    await invoke<string>("get_config").then((raw) => {
-        config = JSON.parse(raw) as SlayfiConfig;
+    await invoke<ClientConfig>("get_client_config").then((client_config) => {
+        config = client_config;
         console.log("Config loaded: ", config);
     });
 

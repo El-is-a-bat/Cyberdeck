@@ -1,3 +1,4 @@
+use crate::config;
 use aho_corasick::AhoCorasick;
 use freedesktop_file_parser::{EntryType, LocaleString};
 #[cfg(debug_assertions)]
@@ -9,7 +10,6 @@ use std::env;
 use std::fs;
 use std::path::Path;
 use std::process::Command;
-use tauri::{Manager, PhysicalSize, Size};
 use walkdir::WalkDir;
 
 #[derive(Serialize, Deserialize)]
@@ -18,6 +18,7 @@ pub struct Application {
     pub comment: String,
     pub icon: String,
     pub exec: String,
+    // pub launches_count: u32,
 }
 
 impl std::fmt::Display for Application {
@@ -59,13 +60,20 @@ pub fn get_desktop_applications() -> Vec<Application> {
     let applications_path = "/usr/share/applications/";
     let mut applications: Vec<Application> = vec![];
 
+    let config_guard = match config::APP_CONFIG.lock() {
+        Ok(conf) => conf,
+        Err(e) => {
+            error!("Error while locking config: {e}");
+            return applications;
+        }
+    };
     // get current desktop environment
-    let desktop_environment =
-        env::var("XDG_CURRENT_DESKTOP").unwrap_or_else(|_| String::from("Hyprland"));
-    let terminal_app = "kitty";
+    let desktop_environment = &config_guard.desktop_environment;
+    // env::var("XDG_CURRENT_DESKTOP").unwrap_or_else(|_| String::from("Hyprland"));
+    let terminal_app = &config_guard.terminal_app;
     // for manually searching for some KDE icons, as the freedesktop_file_parser chooses
     // the "hicolor" theme by default.
-    let kde_icon_theme = get_kde_icon_theme().unwrap_or_else(|| String::from(""));
+    let kde_icon_theme = &config_guard.kde_icon_theme;
     #[cfg(debug_assertions)]
     {
         info!("Current desktop environment: {desktop_environment}");
@@ -78,164 +86,28 @@ pub fn get_desktop_applications() -> Vec<Application> {
         .filter_map(|e| e.ok())
     {
         let file_path = entry.path().to_string_lossy();
+        if !file_path.ends_with(".desktop") {
+            #[cfg(debug_assertions)]
+            debug!("Skipping '{file_path}': not a desktop file");
+            continue;
+        }
+
         #[cfg(debug_assertions)]
         debug!("Processing: {file_path}");
 
-        let content = match std::fs::read_to_string(entry.path()) {
-            Ok(content) => content,
-            Err(e) => {
-                error!("Error reading file {file_path}: {e}");
-                continue;
+        match parse_application_from_file(
+            file_path.to_string(),
+            desktop_environment,
+            terminal_app,
+            kde_icon_theme,
+        ) {
+            Some(parsed_app) => {
+                #[cfg(debug_assertions)]
+                debug!("Adding application: {parsed_app}");
+                applications.push(parsed_app);
             }
+            None => continue,
         };
-
-        // extract only the [Desktop Entry] section
-        let desktop_entry_content = match content.split("[Desktop Entry]").nth(1) {
-            Some(section) => {
-                // Find the next section header or end of file
-                let next_section = section.find("\n[").unwrap_or(section.len());
-                format!("[Desktop Entry]{}", &section[..next_section])
-            }
-            None => {
-                #[cfg(debug_assertions)]
-                debug!("No [Desktop Entry] section found in {file_path}");
-                continue;
-            }
-        };
-
-        let desktop_file = match freedesktop_file_parser::parse(&desktop_entry_content) {
-            Ok(parsed) => parsed,
-            Err(e) => {
-                error!("Error parsing desktop file {file_path}: {e}");
-                continue;
-            }
-        };
-
-        let desktop_entry = desktop_file.entry;
-
-        // skip if not an application entry
-        if let EntryType::Application(application) = &desktop_entry.entry_type {
-            // skip if no exec field
-            let app_exec = match application.exec.clone() {
-                Some(exec) => {
-                    let cleaned = clean_exec_command(exec, &desktop_entry.name.default);
-                    match application.terminal {
-                        Some(is_terminal) => {
-                            if is_terminal {
-                                format!("{terminal_app} {cleaned}")
-                            } else {
-                                cleaned
-                            }
-                        }
-                        None => cleaned,
-                    }
-                }
-                None => {
-                    #[cfg(debug_assertions)]
-                    {
-                        debug!(
-                            "Skipping {app_name}: No exec field",
-                            app_name = desktop_entry.name.default
-                        );
-                    }
-                    continue;
-                }
-            };
-
-            // skip if application is hidden or shouldn't be displayed
-            if desktop_entry.hidden.unwrap_or(false) || desktop_entry.no_display.unwrap_or(false) {
-                #[cfg(debug_assertions)]
-                {
-                    debug!(
-                        "Skipping {app_name}: Hidden or no display",
-                        app_name = desktop_entry.name.default
-                    );
-                }
-                continue;
-            }
-
-            // check if application should be shown in current desktop environment
-            let only_show_in = desktop_entry.only_show_in.unwrap_or_default();
-            let not_show_in = desktop_entry.not_show_in.unwrap_or_default();
-
-            if !only_show_in.is_empty() && !only_show_in.contains(&desktop_environment) {
-                #[cfg(debug_assertions)]
-                {
-                    debug!(
-                        "Skipping {app_name}: Not compatible with current desktop environment",
-                        app_name = desktop_entry.name.default
-                    );
-                }
-                continue;
-            }
-
-            if not_show_in.contains(&desktop_environment) {
-                #[cfg(debug_assertions)]
-                {
-                    debug!(
-                        "Skipping {app_name}: Explicitly not shown in current desktop environment",
-                        app_name = desktop_entry.name.default
-                    );
-                }
-                continue;
-            }
-
-            let app = Application {
-                name: desktop_entry.name.default.clone(),
-                comment: desktop_entry
-                    .comment
-                    .unwrap_or(LocaleString {
-                        default: String::from(""),
-                        variants: HashMap::new(),
-                    })
-                    .default,
-                icon: match desktop_entry.icon {
-                    Some(icon) => match icon.get_icon_path() {
-                        Some(path) => path.to_string_lossy().into_owned(),
-                        None => {
-                            #[cfg(debug_assertions)]
-                            {
-                                warn!(
-                                    "No icon path found for {app_name}",
-                                    app_name = desktop_entry.name.default
-                                );
-                            }
-                            if !kde_icon_theme.is_empty() {
-                                match freedesktop_icons::lookup(&icon.content)
-                                    .with_size(48)
-                                    .with_theme(&kde_icon_theme)
-                                    .find()
-                                {
-                                    Some(icon_path) => icon_path.to_string_lossy().into_owned(),
-                                    None => String::from(""),
-                                }
-                            } else {
-                                String::from("")
-                            }
-                        }
-                    },
-                    None => {
-                        #[cfg(debug_assertions)]
-                        warn!(
-                            "No icon found for {app_name}",
-                            app_name = desktop_entry.name.default
-                        );
-                        String::from("")
-                    }
-                },
-                exec: app_exec,
-            };
-
-            #[cfg(debug_assertions)]
-            debug!("Added application: {app}");
-            applications.push(app);
-        } else {
-            #[cfg(debug_assertions)]
-            {
-                debug!("Skipping {file_path}: Not an application entry");
-            }
-            continue;
-        }
     }
 
     #[cfg(debug_assertions)]
@@ -257,20 +129,6 @@ pub fn get_desktop_applications() -> Vec<Application> {
 }
 
 #[tauri::command]
-pub fn get_config() -> String {
-    "{\"apps_per_page\": 5}".into()
-}
-
-#[tauri::command]
-pub fn set_application_size(app_handle: tauri::AppHandle, height: u32, width: u32) {
-    if let Some(window) = app_handle.get_window("main") {
-        let _ = window.set_size(Size::Physical(PhysicalSize { width, height }));
-    }
-    info!("Width: {width}");
-    info!("Height: {height}");
-}
-
-#[tauri::command]
 pub fn try_get_cached_applications() -> Vec<Application> {
     match read_cached_apps() {
         Ok(apps) => apps,
@@ -285,6 +143,165 @@ pub fn try_get_cached_applications() -> Vec<Application> {
 #[tauri::command]
 pub fn is_dev() -> bool {
     cfg!(debug_assertions)
+}
+
+fn parse_application_from_file(
+    file_path: String,
+    desktop_environment: &String,
+    terminal_app: &String,
+    kde_icon_theme: &str,
+) -> Option<Application> {
+    let content = match std::fs::read_to_string(&file_path) {
+        Ok(content) => content,
+        Err(e) => {
+            error!("Error reading file {file_path}: {e}");
+            return None;
+        }
+    };
+
+    // extract only the [Desktop Entry] section
+    // upd: so far this is needed only for realvnc-vncviewer.desktop
+    // because of `Error: Repetitive declaration of key "Name" and or entry or action`
+    let desktop_entry_content = match content.split("[Desktop Entry]").nth(1) {
+        Some(section) => {
+            // Find the next section header or end of file
+            let next_section = section.find("\n[").unwrap_or(section.len());
+            format!("[Desktop Entry]{}", &section[..next_section])
+        }
+        None => {
+            #[cfg(debug_assertions)]
+            debug!("No [Desktop Entry] section found in {file_path}");
+            return None;
+        }
+    };
+
+    let desktop_file = match freedesktop_file_parser::parse(&desktop_entry_content) {
+        Ok(parsed) => parsed,
+        Err(e) => {
+            error!("Error parsing desktop file {file_path}: {e}");
+            return None;
+        }
+    };
+
+    let desktop_entry = desktop_file.entry;
+
+    // skip if not an application entry
+    if let EntryType::Application(application) = &desktop_entry.entry_type {
+        // skip if no exec field
+        let app_exec = match application.exec.clone() {
+            Some(exec) => {
+                let cleaned = clean_exec_command(exec, &desktop_entry.name.default);
+                match application.terminal {
+                    Some(is_terminal) => {
+                        if is_terminal {
+                            format!("{terminal_app} {cleaned}")
+                        } else {
+                            cleaned
+                        }
+                    }
+                    None => cleaned,
+                }
+            }
+            None => {
+                #[cfg(debug_assertions)]
+                {
+                    debug!(
+                        "Skipping {app_name}: No exec field",
+                        app_name = desktop_entry.name.default
+                    );
+                }
+                return None;
+            }
+        };
+
+        // skip if application is hidden or shouldn't be displayed
+        if desktop_entry.hidden.unwrap_or(false) || desktop_entry.no_display.unwrap_or(false) {
+            #[cfg(debug_assertions)]
+            {
+                debug!(
+                    "Skipping {app_name}: Hidden or no display",
+                    app_name = desktop_entry.name.default
+                );
+            }
+            return None;
+        }
+
+        // check if application should be shown in current desktop environment
+        let only_show_in = desktop_entry.only_show_in.unwrap_or_default();
+        let not_show_in = desktop_entry.not_show_in.unwrap_or_default();
+
+        if !only_show_in.is_empty() && !only_show_in.contains(desktop_environment) {
+            #[cfg(debug_assertions)]
+            {
+                debug!(
+                    "Skipping {app_name}: Not compatible with current desktop environment",
+                    app_name = desktop_entry.name.default
+                );
+            }
+            return None;
+        }
+
+        if not_show_in.contains(desktop_environment) {
+            #[cfg(debug_assertions)]
+            {
+                debug!(
+                    "Skipping {app_name}: Explicitly not shown in current desktop environment",
+                    app_name = desktop_entry.name.default
+                );
+            }
+            return None;
+        }
+
+        Some(Application {
+            name: desktop_entry.name.default.clone(),
+            comment: desktop_entry
+                .comment
+                .unwrap_or(LocaleString {
+                    default: String::from(""),
+                    variants: HashMap::new(),
+                })
+                .default,
+            icon: match desktop_entry.icon {
+                Some(icon) => match icon.get_icon_path() {
+                    Some(path) => path.to_string_lossy().into_owned(),
+                    None => {
+                        #[cfg(debug_assertions)]
+                        warn!(
+                            "No icon path found for {app_name}",
+                            app_name = desktop_entry.name.default
+                        );
+                        if !kde_icon_theme.is_empty() {
+                            match freedesktop_icons::lookup(&icon.content)
+                                .with_size(48)
+                                .with_theme(kde_icon_theme)
+                                .find()
+                            {
+                                Some(icon_path) => icon_path.to_string_lossy().into_owned(),
+                                None => String::from(""),
+                            }
+                        } else {
+                            String::from("")
+                        }
+                    }
+                },
+                None => {
+                    #[cfg(debug_assertions)]
+                    warn!(
+                        "No icon found for {app_name}",
+                        app_name = desktop_entry.name.default
+                    );
+                    String::from("")
+                }
+            },
+            exec: app_exec,
+        })
+    } else {
+        #[cfg(debug_assertions)]
+        {
+            debug!("Skipping {file_path}: Not an application entry");
+        }
+        None
+    }
 }
 
 fn clean_exec_command(exec: String, app_name: &str) -> String {
@@ -327,38 +344,6 @@ fn clean_exec_command(exec: String, app_name: &str) -> String {
         cleaned.split_whitespace().collect::<Vec<_>>().join(" ")
     } else {
         result.join(" ")
-    }
-}
-
-fn get_kde_icon_theme() -> Option<String> {
-    let output_result = Command::new("kreadconfig5")
-        .args(["--file", "kdeglobals", "--group", "Icons", "--key", "Theme"])
-        .output();
-    match output_result {
-        Ok(output) => {
-            if output.status.success() {
-                let theme = String::from_utf8_lossy(&output.stdout).trim().to_string();
-                if !theme.is_empty() {
-                    Some(theme)
-                } else {
-                    #[cfg(debug_assertions)]
-                    error!("kreadconfig5 returned empty theme");
-                    None
-                }
-            } else {
-                #[cfg(debug_assertions)]
-                error!(
-                    "kreadconfig5 failed: {stderr}",
-                    stderr = String::from_utf8_lossy(&output.stderr)
-                );
-                None
-            }
-        }
-        Err(_e) => {
-            #[cfg(debug_assertions)]
-            error!("Failed to execute kreadconfig5: {_e}");
-            None
-        }
     }
 }
 
