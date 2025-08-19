@@ -12,6 +12,7 @@ pub struct SlayfiConfig {
     pub terminal_app: String,
     pub desktop_environment: String,
     pub kde_icon_theme: String,
+    pub lookup_dirs: Vec<String>,
 }
 
 impl Default for SlayfiConfig {
@@ -21,13 +22,17 @@ impl Default for SlayfiConfig {
             terminal_app: "kitty".to_string(),
             desktop_environment: "Hyprland".to_string(),
             kde_icon_theme: "".to_string(),
+            lookup_dirs: vec![
+                String::from("/usr/share/applications/"),
+                String::from("/var/lib/flatpak/exports/share/applications/"),
+            ],
         }
     }
 }
 
 #[derive(Debug, Serialize, Deserialize, TS)]
 #[ts(export, export_to = "../../src/types/ClientConfig.ts")]
-pub struct SlayfiClientConfig {
+pub struct ClientConfig {
     pub apps_per_page: u16,
 }
 
@@ -122,8 +127,8 @@ pub fn get_slayfi_config() -> Result<SlayfiConfig, String> {
 }
 
 #[tauri::command]
-pub fn get_client_config() -> Result<SlayfiClientConfig, String> {
-    Ok(SlayfiClientConfig {
+pub fn get_client_config() -> Result<ClientConfig, String> {
+    Ok(ClientConfig {
         apps_per_page: APP_CONFIG
             .lock()
             .map_err(|e| format!("Failed to lock config: {e}"))?

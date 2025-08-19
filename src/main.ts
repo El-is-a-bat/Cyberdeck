@@ -1,16 +1,11 @@
 import { invoke } from "@tauri-apps/api/core";
 import { convertFileSrc } from "@tauri-apps/api/core";
 import { ClientConfig } from "./types/ClientConfig";
+import { Application } from "./types/Application";
 
-interface App {
-    name: string;
-    comment: string;
-    icon: string;
-    exec: string;
-}
 
 // TODO remove?
-let apps: App[] = [];
+let apps: Application[] = [];
 let appsEntries: HTMLDivElement[] = [];
 let availableApps: HTMLDivElement[] = [];
 let config: ClientConfig;
@@ -28,12 +23,27 @@ let isDev = false;
 
 async function fetchApps() {
     console.log("fetching apps");
-    apps = await invoke("try_get_cached_applications");
-    if (apps.length == 0) {
-        console.log("cached apps don't found, trying to get applications list");
+
+    const apps = await tryGetCachedApplications();
+    if (apps) {
+        console.log("get cached apps succesfully");
+        return apps;
     }
-    // update installed apps
-    await invoke("get_desktop_applications");
+
+    console.log("cached apps not found, or error occured");
+    console.log("trying to get applications list");
+    const freshApps = await getApplications();
+    return freshApps;
+}
+
+async function tryGetCachedApplications() {
+    const apps = await invoke<Application[] | null>("try_get_cached_applications");
+    return apps;
+}
+
+async function getApplications() {
+    const apps = await invoke<Application[] | null>("get_desktop_applications");
+    return apps;
 }
 
 async function createAppsEntries() {
@@ -63,7 +73,7 @@ async function createAppsEntries() {
     });
 
 
-    apps.forEach((app: App, index: number) => {
+    apps.forEach((app: Application, index: number) => {
         const entry = document.createElement("div");
         entry.className = "entry";
         entry.id = app.name;
@@ -275,7 +285,12 @@ async function main() {
         console.log("Config loaded: ", config);
     });
 
-    await fetchApps();
+    const fetchedApps = await fetchApps();
+    if (fetchedApps) {
+        apps = fetchedApps;
+    } else {
+        return;
+    }
 
     if (apps.length === 0) {
         // TODO show that apps not found
@@ -304,6 +319,9 @@ async function main() {
     }
 
     await addAppSelection();
+    // TODO remove 
+    // updating cache
+    await getApplications();
 }
 
 main();

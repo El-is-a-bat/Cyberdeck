@@ -10,9 +10,11 @@ use std::env;
 use std::fs;
 use std::path::Path;
 use std::process::Command;
+use ts_rs::TS;
 use walkdir::WalkDir;
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, TS)]
+#[ts(export, export_to = "../../src/types/Application.ts")]
 pub struct Application {
     pub name: String,
     pub comment: String,
@@ -56,17 +58,18 @@ pub fn start_program(app_handle: tauri::AppHandle, exec: String) -> bool {
 }
 
 #[tauri::command]
-pub fn get_desktop_applications() -> Vec<Application> {
-    let applications_path = "/usr/share/applications/";
+pub async fn get_desktop_applications() -> Vec<Application> {
     let mut applications: Vec<Application> = vec![];
 
     let config_guard = match config::APP_CONFIG.lock() {
-        Ok(conf) => conf,
+        Ok(conf) => conf.clone(),
         Err(e) => {
             error!("Error while locking config: {e}");
             return applications;
         }
     };
+
+    let applications_paths = &config_guard.lookup_dirs;
     // get current desktop environment
     let desktop_environment = &config_guard.desktop_environment;
     // env::var("XDG_CURRENT_DESKTOP").unwrap_or_else(|_| String::from("Hyprland"));
@@ -81,33 +84,37 @@ pub fn get_desktop_applications() -> Vec<Application> {
         info!("Current KDE icon theme: {kde_icon_theme}");
     }
 
-    for entry in WalkDir::new(applications_path)
-        .into_iter()
-        .filter_map(|e| e.ok())
-    {
-        let file_path = entry.path().to_string_lossy();
-        if !file_path.ends_with(".desktop") {
-            #[cfg(debug_assertions)]
-            debug!("Skipping '{file_path}': not a desktop file");
-            continue;
-        }
-
-        #[cfg(debug_assertions)]
-        debug!("Processing: {file_path}");
-
-        match parse_application_from_file(
-            file_path.to_string(),
-            desktop_environment,
-            terminal_app,
-            kde_icon_theme,
-        ) {
-            Some(parsed_app) => {
+    for applications_path in applications_paths {
+        for entry in WalkDir::new(applications_path)
+            .into_iter()
+            .filter_map(|e| e.ok())
+        {
+            let file_path = entry.path().to_string_lossy();
+            if !file_path.ends_with(".desktop") {
                 #[cfg(debug_assertions)]
-                debug!("Adding application: {parsed_app}");
-                applications.push(parsed_app);
+                debug!("Skipping '{file_path}': not a desktop file");
+                continue;
             }
-            None => continue,
-        };
+
+            #[cfg(debug_assertions)]
+            debug!("Processing: {file_path}");
+
+            match parse_application_from_file(
+                file_path.to_string(),
+                desktop_environment,
+                terminal_app,
+                kde_icon_theme,
+            )
+            .await
+            {
+                Some(parsed_app) => {
+                    #[cfg(debug_assertions)]
+                    debug!("Adding application: {parsed_app}");
+                    applications.push(parsed_app);
+                }
+                None => continue,
+            };
+        }
     }
 
     #[cfg(debug_assertions)]
@@ -115,7 +122,7 @@ pub fn get_desktop_applications() -> Vec<Application> {
         "Total applications found: {count}",
         count = applications.len()
     );
-    match cache_apps(&applications) {
+    match cache_apps(&applications).await {
         Ok(()) => {
             #[cfg(debug_assertions)]
             info!("Applications cached successfully")
@@ -129,13 +136,16 @@ pub fn get_desktop_applications() -> Vec<Application> {
 }
 
 #[tauri::command]
-pub fn try_get_cached_applications() -> Vec<Application> {
-    match read_cached_apps() {
-        Ok(apps) => apps,
+pub async fn try_get_cached_applications() -> Option<Vec<Application>> {
+    match read_cached_apps().await {
+        Ok(apps) => {
+            #[cfg(debug_assertions)]
+            info!("Successfully read cached applications");
+            Some(apps)
+        }
         Err(e) => {
             error!("Error while reading cached apps: {e}");
-
-            get_desktop_applications()
+            None
         }
     }
 }
@@ -145,7 +155,7 @@ pub fn is_dev() -> bool {
     cfg!(debug_assertions)
 }
 
-fn parse_application_from_file(
+async fn parse_application_from_file(
     file_path: String,
     desktop_environment: &String,
     terminal_app: &String,
@@ -190,7 +200,7 @@ fn parse_application_from_file(
         // skip if no exec field
         let app_exec = match application.exec.clone() {
             Some(exec) => {
-                let cleaned = clean_exec_command(exec, &desktop_entry.name.default);
+                let cleaned = clean_exec_command(exec, &desktop_entry.name.default).await;
                 match application.terminal {
                     Some(is_terminal) => {
                         if is_terminal {
@@ -304,7 +314,7 @@ fn parse_application_from_file(
     }
 }
 
-fn clean_exec_command(exec: String, app_name: &str) -> String {
+async fn clean_exec_command(exec: String, app_name: &str) -> String {
     // is a separate function because at first I decided to remove some args,
     // like `%U` and `%f`, but then decided not to use them at all because of
     // some weird results like:
@@ -347,7 +357,7 @@ fn clean_exec_command(exec: String, app_name: &str) -> String {
     }
 }
 
-pub fn cache_apps(apps: &Vec<Application>) -> std::io::Result<()> {
+pub async fn cache_apps(apps: &Vec<Application>) -> std::io::Result<()> {
     let cache_path = format!(
         "{}/.local/share/slayfi/apps_cache.json",
         env::var("HOME").unwrap_or_else(|_| String::from("/home"))
@@ -360,7 +370,7 @@ pub fn cache_apps(apps: &Vec<Application>) -> std::io::Result<()> {
     fs::write(cache_path, json)
 }
 
-pub fn read_cached_apps() -> std::io::Result<Vec<Application>> {
+pub async fn read_cached_apps() -> std::io::Result<Vec<Application>> {
     let cache_path = format!(
         "{}/.local/share/slayfi/apps_cache.json",
         env::var("HOME").unwrap_or_else(|_| String::from("/home"))
