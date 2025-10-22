@@ -2,6 +2,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { convertFileSrc } from "@tauri-apps/api/core";
 import { ClientConfig } from "./types/ClientConfig";
 import { Application } from "./types/Application";
+import { EN_UA_TRANSLITERATOR } from "./utils/LayoutTransliterator";
 
 
 // TODO remove?
@@ -239,8 +240,8 @@ async function addAppSelection() {
 
 function filterApps() {
     // TODO highlight the entered charackters 
-    // TODO search regardless onf the input language
     let filterText = filter.value.toLowerCase();
+    const translatedText = EN_UA_TRANSLITERATOR.transliterate(filterText);
 
     availableApps.length = 0;
 
@@ -248,7 +249,9 @@ function filterApps() {
     appsEntries.forEach(entry => {
         app = entry.querySelector(".app-name") as HTMLDivElement;
         appName = app.textContent || app.innerText;
-        if (appName.toLowerCase().indexOf(filterText) > -1) {
+        appName = appName.toLowerCase();
+
+        if (appName.indexOf(filterText) > -1 || appName.indexOf(translatedText) > -1) {
             availableApps.push(entry.cloneNode(true) as HTMLDivElement);
         }
     });
