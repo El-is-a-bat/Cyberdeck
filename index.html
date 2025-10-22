@@ -6,11 +6,12 @@
     <link rel="stylesheet" href="./src/styles.css">
 </head>
 <body>
-  <div class="container">
-    <input type="text" id="filter" class="filter" placeholder="Type a command..." oninput="showFiltered()"></input>
-    <div id="app-list" class="app-list"></div>
-  </div>
-
-  <script type="module" src="./src/main.ts"></script>
+    <div id="sidebar">
+        <div class="container">
+            <input type="text" id="filter" class="filter" placeholder="Type a command..." oninput="showFiltered()"></input>
+        <div id="app-list" class="app-list"></div>
+    </div>
+        </div>
+   <script type="module" src="./src/main.ts"></script>
 </body>
 </html>

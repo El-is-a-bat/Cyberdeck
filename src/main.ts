@@ -1,53 +1,80 @@
 import { invoke } from "@tauri-apps/api/core";
 import { convertFileSrc } from "@tauri-apps/api/core";
+import { ClientConfig } from "./types/ClientConfig";
+import { Application } from "./types/Application";
+import { EN_UA_TRANSLITERATOR } from "./utils/LayoutTransliterator";
 
 
-interface App {
-    name: string;
-    comment: string;
-    icon: string;
-    exec: string;
-}
-
-interface SlayfiConfig {
-    apps_per_page: number
-}
 // TODO remove?
-let apps: App[] = [];
-// TODO change to list?
+let apps: Application[] = [];
 let appsEntries: HTMLDivElement[] = [];
 let availableApps: HTMLDivElement[] = [];
-let config: SlayfiConfig;
+let config: ClientConfig;
 let maxPages: number;
 let currentPage = 0;
 let currentSelectedIdx = 0;
 const filter = document.getElementById("filter") as HTMLInputElement;
 const container = document.getElementById("app-list") as HTMLDivElement;
 
+let isDev = false;
+(async () => {
+    isDev = await invoke<boolean>("is_dev");
+    console.log("Development mode:", isDev);
+})();
+
 async function fetchApps() {
-    apps = await invoke("list_desktop_applications");
+    console.log("fetching apps");
+
+    const apps = await tryGetCachedApplications();
+    if (apps) {
+        console.log("get cached apps succesfully");
+        return apps;
+    }
+
+    console.log("cached apps not found, or error occured");
+    console.log("trying to get applications list");
+    const freshApps = await getApplications();
+    return freshApps;
+}
+
+async function tryGetCachedApplications() {
+    const apps = await invoke<Application[] | null>("try_get_cached_applications");
+    return apps;
+}
+
+async function getApplications() {
+    const apps = await invoke<Application[] | null>("get_desktop_applications");
+    return apps;
 }
 
 async function createAppsEntries() {
     container.addEventListener("click", (e) => {
-        let clickedItem = e.target as HTMLDivElement;
-        let entry = clickedItem.closest(".entry") as HTMLDivElement;
+        const clickedItem = e.target as HTMLDivElement;
+        const entry = clickedItem.closest(".entry") as HTMLDivElement;
         if (entry) {
             selectApp(entry);
         } else {
             console.log("somehow clicked item is not in entry");
         }
     });
-    container.addEventListener("dblclick", () => {
-        //const appName = entry.querySelector(".app-name")?.textContent;
-        //if (appName) {
-        //    runApp(appName);
-        //}
+    container.addEventListener("dblclick", (e) => {
+        const clickedItem = e.target as HTMLDivElement;
+        const entry = clickedItem.closest(".entry") as HTMLDivElement;
+        if (entry) {
+            selectApp(entry);
+            const appName = entry.querySelector(".app-name")?.textContent;
+            if (appName) {
+                runApp(appName);
+            } else {
+                console.log("can't find app name for selected item");
+            }
+        } else {
+            console.log("somehow clicked item is not in entry");
+        }
     });
 
-    const isDev = await invoke<boolean>("is_dev");
 
-    apps.forEach((app: App, index: number) => {
+    apps.forEach((app: Application, index: number) => {
         const entry = document.createElement("div");
         entry.className = "entry";
         entry.id = app.name;
@@ -132,6 +159,8 @@ async function addAppSelection() {
 
         let newSelectedIndex = currentSelectedIdx;
 
+        // TODO add scrolling
+
         //TODO handle if last page less than apps_per_page
         // if page=0 and selectedIdx=0 and ArrowLeft, selected item outside page.
         // if scroll by ArrowRight selected item also moves itself from existence
@@ -152,7 +181,7 @@ async function addAppSelection() {
             case "ArrowDown":
                 e.preventDefault();
                 newSelectedIndex += 1;
-                let lastIdxOnPage = currentPage * config.apps_per_page + config.apps_per_page - 1;
+                const lastIdxOnPage = currentPage * config.apps_per_page + config.apps_per_page - 1;
                 if (newSelectedIndex > lastIdxOnPage || newSelectedIndex >= availableApps.length) {
                     nextPage();
                 }
@@ -211,8 +240,8 @@ async function addAppSelection() {
 
 function filterApps() {
     // TODO highlight the entered charackters 
-    // TODO search regardless onf the input language
     let filterText = filter.value.toLowerCase();
+    const translatedText = EN_UA_TRANSLITERATOR.transliterate(filterText);
 
     availableApps.length = 0;
 
@@ -220,7 +249,9 @@ function filterApps() {
     appsEntries.forEach(entry => {
         app = entry.querySelector(".app-name") as HTMLDivElement;
         appName = app.textContent || app.innerText;
-        if (appName.toLowerCase().indexOf(filterText) > -1) {
+        appName = appName.toLowerCase();
+
+        if (appName.indexOf(filterText) > -1 || appName.indexOf(translatedText) > -1) {
             availableApps.push(entry.cloneNode(true) as HTMLDivElement);
         }
     });
@@ -252,12 +283,17 @@ filter.addEventListener("keydown", (e) => {
 });
 
 async function main() {
-    await invoke<string>("get_config").then((raw) => {
-        config = JSON.parse(raw) as SlayfiConfig;
+    await invoke<ClientConfig>("get_client_config").then((client_config) => {
+        config = client_config;
         console.log("Config loaded: ", config);
     });
 
-    await fetchApps();
+    const fetchedApps = await fetchApps();
+    if (fetchedApps) {
+        apps = fetchedApps;
+    } else {
+        return;
+    }
 
     if (apps.length === 0) {
         // TODO show that apps not found
@@ -278,12 +314,17 @@ async function main() {
     availableApps[0].classList.add("selected");
     setPage(0);
 
-    const filter = document.getElementById("filter") as HTMLInputElement;
     filter.focus();
     filter.oninput = filterApps;
 
-    console.log(apps);
+    if (isDev) {
+        console.log(apps);
+    }
+
     await addAppSelection();
+    // TODO remove 
+    // updating cache
+    await getApplications();
 }
 
 main();
