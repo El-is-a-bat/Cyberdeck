@@ -5,6 +5,7 @@ mod commands;
 mod config;
 
 use gtk::prelude::*;
+use gtk_layer_shell::{Edge, Layer, LayerShell};
 use tauri::Manager;
 
 fn main() {
@@ -48,13 +49,35 @@ fn main() {
         .setup(|app| {
             // setting up gtk window
             let main_webview = app.get_webview_window("main").unwrap();
-            let gtk_window = main_webview.gtk_window().unwrap();
+            let _ = main_webview.hide();
+
+            let gtk_window = gtk::ApplicationWindow::new(
+                &main_webview.gtk_window().unwrap().application().unwrap(),
+            );
+            // let gtk_window = main_webview.gtk_window().unwrap();
 
             let current_monitor_size = match main_webview.current_monitor() {
                 Ok(Some(monitor)) => *monitor.size(),
                 Ok(None) => tauri::PhysicalSize::new(1920, 1080),
                 Err(_e) => tauri::PhysicalSize::new(1920, 1080),
             };
+
+            let vbox = main_webview.default_vbox().unwrap();
+            main_webview.gtk_window().unwrap().remove(&vbox);
+            gtk_window.add(&vbox);
+
+            gtk_window.init_layer_shell();
+
+            let vbox = main_webview.default_vbox().unwrap();
+            main_webview.gtk_window().unwrap().remove(&vbox);
+            gtk_window.add(&vbox);
+
+            gtk_window.set_app_paintable(true);
+
+            gtk_window.set_layer(Layer::Top);
+
+            gtk_window.set_anchor(Edge::Top, true);
+            gtk_window.set_anchor(Edge::Left, true);
 
             gtk_window.set_decorated(false);
             // setting this to false makes window float
@@ -64,6 +87,10 @@ fn main() {
 
             gtk_window.set_width_request(current_monitor_size.width.try_into().unwrap());
             gtk_window.set_height_request(current_monitor_size.height.try_into().unwrap());
+
+            gtk_window.set_can_focus(true);
+            gtk_window.set_keyboard_mode(gtk_layer_shell::KeyboardMode::OnDemand);
+            gtk_window.show_all();
 
             Ok(())
         })

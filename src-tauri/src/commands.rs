@@ -174,7 +174,7 @@ async fn parse_application_from_file(
     // because of `Error: Repetitive declaration of key "Name" and or entry or action`
     let desktop_entry_content = match content.split("[Desktop Entry]").nth(1) {
         Some(section) => {
-            // Find the next section header or end of file
+            // find the next section header or end of file
             let next_section = section.find("\n[").unwrap_or(section.len());
             format!("[Desktop Entry]{}", &section[..next_section])
         }
