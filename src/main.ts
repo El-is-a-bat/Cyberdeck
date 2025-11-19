@@ -3,7 +3,7 @@ import { convertFileSrc } from "@tauri-apps/api/core";
 import { ClientConfig } from "./types/ClientConfig";
 import { Application } from "./types/Application";
 import { EN_UA_TRANSLITERATOR } from "./utils/LayoutTransliterator";
-
+import { distance } from "fastest-levenshtein";
 
 // TODO remove?
 let apps: Application[] = [];
@@ -241,21 +241,29 @@ async function addAppSelection() {
 function filterApps() {
     // TODO highlight the entered charackters 
     let filterText = filter.value.toLowerCase();
-    const translatedText = EN_UA_TRANSLITERATOR.transliterate(filterText);
+    const transliteratedText = EN_UA_TRANSLITERATOR.transliterate(filterText);
 
     availableApps.length = 0;
 
     let app, appName;
     appsEntries.forEach(entry => {
         app = entry.querySelector(".app-name") as HTMLDivElement;
-        appName = app.textContent || app.innerText;
-        appName = appName.toLowerCase();
+        appName = app.innerText.toLowerCase();
 
-        if (appName.indexOf(filterText) > -1 || appName.indexOf(translatedText) > -1) {
+        if (appName.indexOf(filterText) > -1 || appName.indexOf(transliteratedText) > -1) {
             availableApps.push(entry.cloneNode(true) as HTMLDivElement);
         }
     });
 
+    availableApps.sort((a, b) => {
+        let leftAppName = (a.querySelector(".app-name") as HTMLDivElement).innerText.trim().toLowerCase();
+        let rightAppName = (b.querySelector(".app-name") as HTMLDivElement).innerText.trim().toLowerCase();
+
+        let startWithLeft = (leftAppName.startsWith(filterText) || leftAppName.startsWith(transliteratedText)) ? 1 : 10;
+        let startWithRight = (rightAppName.startsWith(filterText) || rightAppName.startsWith(transliteratedText)) ? 1 : 10;
+
+        return distance(leftAppName, transliteratedText) * startWithLeft - distance(rightAppName, transliteratedText) * startWithRight;
+    });
     maxPages = Math.ceil(availableApps.length / config.apps_per_page);
     setPage(0);
     selectAppByIdx(0);
