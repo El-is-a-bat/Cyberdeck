@@ -5,6 +5,7 @@ mod commands;
 mod config;
 
 use gtk::prelude::*;
+use gtk_layer_shell::{Edge, Layer, LayerShell};
 use tauri::Manager;
 
 fn main() {
@@ -28,7 +29,7 @@ fn main() {
             tauri_plugin_log::Builder::new()
                 .level(log::LevelFilter::Info)
                 .max_file_size(50000 /* bytes */)
-                .filter(|metadata| metadata.target().starts_with("slayfi"))
+                .filter(|metadata| metadata.target().starts_with("cyberdeck"))
                 .format(|out, message, record| {
                     out.finish(format_args!("[{}] {}", record.level(), message))
                 })
@@ -46,24 +47,41 @@ fn main() {
 
     builder
         .setup(|app| {
-            // setting up gtk window
+            // setting up gtk layer
             let main_webview = app.get_webview_window("main").unwrap();
-            let gtk_window = main_webview.gtk_window().unwrap();
+            let _ = main_webview.hide();
 
-            let current_monitor_size = match main_webview.current_monitor() {
-                Ok(Some(monitor)) => *monitor.size(),
-                Ok(None) => tauri::PhysicalSize::new(1920, 1080),
-                Err(_e) => tauri::PhysicalSize::new(1920, 1080),
-            };
+            let gtk_window = gtk::ApplicationWindow::new(
+                &main_webview.gtk_window().unwrap().application().unwrap(),
+            );
+
+            gtk_window.init_layer_shell();
+
+            let vbox = main_webview.default_vbox().unwrap();
+            main_webview.gtk_window().unwrap().remove(&vbox);
+            gtk_window.add(&vbox);
+
+            gtk_window.set_app_paintable(true);
+
+            gtk_window.set_layer(Layer::Overlay);
+            gtk_window.set_namespace("cyberdeck");
+
+            // stretch the app to the screen size
+            gtk_window.set_anchor(Edge::Top, true);
+            gtk_window.set_anchor(Edge::Left, true);
+            gtk_window.set_anchor(Edge::Right, true);
+            gtk_window.set_anchor(Edge::Bottom, true);
 
             gtk_window.set_decorated(false);
-            // setting this to false makes window float
-            // TODO find better way to do this
-            // for now I will use hyprland windowrules((
-            gtk_window.set_resizable(true);
 
-            gtk_window.set_width_request(current_monitor_size.width.try_into().unwrap());
-            gtk_window.set_height_request(current_monitor_size.height.try_into().unwrap());
+            gtk_window.set_can_focus(true);
+
+            // for taking all monitor space
+            gtk_window.set_exclusive_zone(-1);
+
+            gtk_window.set_keyboard_mode(gtk_layer_shell::KeyboardMode::OnDemand);
+
+            gtk_window.show_all();
 
             Ok(())
         })
@@ -73,7 +91,7 @@ fn main() {
             commands::get_desktop_applications,
             commands::is_dev,
             commands::try_get_cached_applications,
-            config::get_slayfi_config,
+            config::get_cyberdeck_config,
             config::get_client_config,
         ])
         .run(tauri::generate_context!())

@@ -7,7 +7,7 @@ use std::sync::Mutex;
 use ts_rs::TS;
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
-pub struct SlayfiConfig {
+pub struct CyberdeckConfig {
     pub apps_per_page: u16,
     pub terminal_app: String,
     pub desktop_environment: String,
@@ -15,9 +15,9 @@ pub struct SlayfiConfig {
     pub lookup_dirs: Vec<String>,
 }
 
-impl Default for SlayfiConfig {
+impl Default for CyberdeckConfig {
     fn default() -> Self {
-        SlayfiConfig {
+        CyberdeckConfig {
             apps_per_page: 5,
             terminal_app: "kitty".to_string(),
             desktop_environment: "Hyprland".to_string(),
@@ -36,24 +36,24 @@ pub struct ClientConfig {
     pub apps_per_page: u16,
 }
 
-pub static APP_CONFIG: Lazy<Mutex<SlayfiConfig>> = Lazy::new(|| {
-    let config = load_or_create_config().unwrap_or_else(|e| -> SlayfiConfig {
+pub static APP_CONFIG: Lazy<Mutex<CyberdeckConfig>> = Lazy::new(|| {
+    let config = load_or_create_config().unwrap_or_else(|e| -> CyberdeckConfig {
         error!("Failed to load config: {e}");
         info!("Using default config");
-        SlayfiConfig::default()
+        CyberdeckConfig::default()
     });
     Mutex::new(config)
 });
 
-fn get_slayfi_config_path() -> Result<PathBuf, String> {
+fn get_cyberdeck_config_path() -> Result<PathBuf, String> {
     let home =
         std::env::var("HOME").map_err(|e| format!("HOME environment variable not set: {e}"))?;
-    let path = format!("{home}/.config/slayfi/config.json");
+    let path = format!("{home}/.config/cyberdeck/config.json");
     Ok(PathBuf::from(path))
 }
 
-pub fn load_or_create_config() -> Result<SlayfiConfig, String> {
-    let config_path = get_slayfi_config_path()?;
+pub fn load_or_create_config() -> Result<CyberdeckConfig, String> {
+    let config_path = get_cyberdeck_config_path()?;
     info!("Attempting to load config from {config_path:?}");
     if config_path.exists() {
         let config_string = fs::read_to_string(&config_path)
@@ -61,7 +61,7 @@ pub fn load_or_create_config() -> Result<SlayfiConfig, String> {
         serde_json::from_str(&config_string)
             .map_err(|e| format!("Failed to parse config from JSON at {config_path:?}: {e}"))
     } else {
-        let mut default_config = SlayfiConfig::default();
+        let mut default_config = CyberdeckConfig::default();
         default_config.kde_icon_theme = match get_kde_icon_theme() {
             Some(icon_theme) => icon_theme,
             None => default_config.kde_icon_theme,
@@ -119,7 +119,7 @@ fn get_kde_icon_theme() -> Option<String> {
 }
 
 #[tauri::command]
-pub fn get_slayfi_config() -> Result<SlayfiConfig, String> {
+pub fn get_cyberdeck_config() -> Result<CyberdeckConfig, String> {
     let config_guard = APP_CONFIG
         .lock()
         .map_err(|e| format!("Failed to lock config {e}"))?;
