@@ -359,7 +359,7 @@ async fn clean_exec_command(exec: String, app_name: &str) -> String {
 
 pub async fn cache_apps(apps: &Vec<Application>) -> std::io::Result<()> {
     let cache_path = format!(
-        "{}/.local/share/slayfi/apps_cache.json",
+        "{}/.local/share/cyberdeck/apps_cache.json",
         env::var("HOME").unwrap_or_else(|_| String::from("/home"))
     );
     if let Some(parent) = Path::new(&cache_path).parent() {
@@ -372,7 +372,7 @@ pub async fn cache_apps(apps: &Vec<Application>) -> std::io::Result<()> {
 
 pub async fn read_cached_apps() -> std::io::Result<Vec<Application>> {
     let cache_path = format!(
-        "{}/.local/share/slayfi/apps_cache.json",
+        "{}/.local/share/cyberdeck/apps_cache.json",
         env::var("HOME").unwrap_or_else(|_| String::from("/home"))
     );
     let data = fs::read_to_string(cache_path)?;

@@ -29,7 +29,7 @@ fn main() {
             tauri_plugin_log::Builder::new()
                 .level(log::LevelFilter::Info)
                 .max_file_size(50000 /* bytes */)
-                .filter(|metadata| metadata.target().starts_with("slayfi"))
+                .filter(|metadata| metadata.target().starts_with("cyberdeck"))
                 .format(|out, message, record| {
                     out.finish(format_args!("[{}] {}", record.level(), message))
                 })
@@ -64,6 +64,7 @@ fn main() {
             gtk_window.set_app_paintable(true);
 
             gtk_window.set_layer(Layer::Overlay);
+            gtk_window.set_namespace("cyberdeck");
 
             // stretch the app to the screen size
             gtk_window.set_anchor(Edge::Top, true);
@@ -90,7 +91,7 @@ fn main() {
             commands::get_desktop_applications,
             commands::is_dev,
             commands::try_get_cached_applications,
-            config::get_slayfi_config,
+            config::get_cyberdeck_config,
             config::get_client_config,
         ])
         .run(tauri::generate_context!())
